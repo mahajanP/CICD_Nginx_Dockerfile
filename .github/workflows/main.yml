@@ -1,0 +1,45 @@
+name: "CICD for Nginx webapp using Dockerfile" #prakash
+
+on:
+  push:
+    branches: ["main"]
+    # To ignore paths on push, uncomment and correct the following section:
+    # paths-ignore: 
+    #   - "src/"
+  pull_request:
+    branches: ["main"]
+
+# NOTE: 'permissions' must be plural and correctly indented at the top level
+permissions: 
+  contents: read
+
+jobs:
+  nginx-image-build:
+    runs-on: ubuntu-latest
+    # NOTE: The correct keyword is 'environment'
+    environment: production
+    
+    # NOTE: 'steps' must be indented one level under the job name
+    steps:
+      - name: Checkout repository
+        # NOTE: The correct action version is recommended as v4 (v5 is a new major version, v4 is stable)
+        uses: actions/checkout@v4 
+
+      # NOTE: Correct indentation and spelling for username
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.CICD_DOCKERHUB_USERNAME }} 
+          password: ${{ secrets.CICD_DOCKERHUB_TOKEN }} 
+          
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # NOTE: Correct spelling for 'true' and proper indentation
+      - name: Build Image and Push to Docker Hub
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true 
+          tags: ${{ secrets.CICD_DOCKERHUB_USERNAME }}/nginx-ubuntu:latest
