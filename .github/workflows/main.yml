@@ -37,15 +37,17 @@ jobs:
         # Using the stable tag @v5
         uses: docker/metadata-action@v5
         with:
-          # FIX 1: Added the forward slash separator (/) between username and image name.
           # The image name is hardcoded as 'nginx-ubuntu' since 'env.respository' is undefined.
           images: ${{ secrets.DOCKERHUB_USERNAME }}/nginx-ubuntu 
           
-          # FIX 2: Combining the duplicate 'tags:' key into a single, correctly formatted block.
+          # FIX 3: Adding a condition to generate the 'latest' tag ONLY when 
+          # the workflow is running on the 'main' branch (for pushes/tags).
           tags: |
             type=ref,event=branch # Generates tags like 'main'
             type=semver,pattern={{version}} # Generates tags like '1.0.0' or '1.0.0-beta'
             type=semver,pattern={{major}}.{{minor}} # Generates tags like '1.0'
+            # 🚨 NEW LINE: Set the 'latest' tag only if the ref is the 'main' branch
+            type=raw,value=latest,enable={{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
             
       - name: Build Image and Push to Docker Hub
         uses: docker/build-push-action@v5
