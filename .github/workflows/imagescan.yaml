@@ -2,57 +2,88 @@ name: "CICD for Nginx webapp using Dockerfile"
 
 on:
   push:
+    # Trigger the CI/CD pipeline specifically when a semantic version tag is pushed 
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+  
+permissions: 
+  # Grants read permission to fetch the repository contents
+  contents: read
 
 env:
-  repository: nginx-ubuntu
-
-permissions:
-  contents: read
+  # FIX 1: Defined repository name once for easier maintenance
+  REPOSITORY_NAME: nginx-ubuntu
 
 jobs:
   nginx-image-build:
     runs-on: ubuntu-latest
     environment: production
+    
     steps:
-      - name: checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4 
         with:
-          token: ${{ secrets.GITUSER_TOKEN }}
-
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      # https://github.com/docker/metadata-action#tags-input
-      - name: Extract metadata for the Docker image
-        id: meta
-        uses: docker/metadata-action@v5 
-        with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-
-      - name: Build Image
-        run: |
-          docker image build -t ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:latest .
-
-      # https://github.com/aquasecurity/trivy-action
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:latest'
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
-
+          # Use token for authenticated checkout, required for some advanced metadata checks
+          token: ${{ secrets.GITUSER_TOKEN }} 
+          
+      # 1. FIX: LOGIN (Must happen BEFORE building or pushing)
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }} 
+          password: ${{ secrets.DOCKERHUB_TOKEN }} 
+          
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      # 2. EXTRACT METADATA (Calculates all final tags based on the Git tag)
+      - name: Extract metadata for the Docker Image
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.REPOSITORY_NAME }}
+          tags: |
+            type=semver,pattern={{version}}       # Generates major.minor.patch (e.g., 1.0.0)
+            type=semver,pattern={{major}}.{{minor}} # Generates major.minor (e.g., 1.0)
+            type=semver,pattern={{major}}         # Generates major (e.g., 1)
+            # Add 'latest' only if it's the latest semantic tag (optional, but ensures only releases get 'latest')
 
-      - name: Build Image and Push to Docker Hub
+      # 3. BUILD IMAGE (Locally Only, uses tags from metadata)
+      # FIX 3: Replaced manual 'docker build' with robust 'build-push-action'
+      - name: Build Image (local only for scan)
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false # Crucial: Build locally for the scan step
+          # Use a single local tag for the scan step using the output variable
+          tags: ${{ steps.meta.outputs.tags }}
+          
+      # 4. RUN TRIVY VULNERABILITY SCAN
+      # Scans the image built in the previous step
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          # Use the first generated tag for scanning (e.g., username/nginx-ubuntu:1.0.0)
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/${{ env.REPOSITORY_NAME }}:${{ steps.meta.outputs.tags }}'
+          format: 'table'
+          # Fail the job if CRITICAL or HIGH vulnerabilities are found
+          exit-code: '1' 
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH' 
+          
+      # 5. PUSH IMAGE (Only runs if the Trivy scan passed)
+      # FIX 4: Changed to use manual push loop to ensure all tags are pushed sequentially after the scan
+      - name: Push Image to Docker Hub
         run: |
-          docker image push ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:${{ steps.meta.outputs.tags }}
+          echo "Trivy scan passed. Pushing all generated tags: ${{ steps.meta.outputs.tags }}"
+          
+          # Splits the comma-separated list of tags from the metadata step
+          IFS=',' read -ra TAGS <<< "${{ steps.meta.outputs.tags }}"
+          
+          for TAG in "${TAGS[@]}"; do
+            IMAGE_WITH_TAG="${{ secrets.DOCKERHUB_USERNAME }}/${{ env.REPOSITORY_NAME }}:$TAG"
+            echo "Pushing $IMAGE_WITH_TAG"
+            docker push $IMAGE_WITH_TAG
+          done
