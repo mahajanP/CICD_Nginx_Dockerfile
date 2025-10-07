@@ -1,4 +1,4 @@
-name: "CICD for Nginx webapp using Dockerfile" #prakash
+name: "CICD for Nginx webapp using Dockerfile" #Prakash Mahajan
 
 on:
   push:
@@ -36,7 +36,9 @@ jobs:
         # NOTE: Using the latest stable major version tag (@v5) is recommended 
         # for maintenance unless you absolutely need the immutable SHA.
         # uses: docker/metadata-action@v5
-        uses: docker/metadata-action@032a4b3bda1b716928481836ac5bfe36e1feaad6
+        # https://github.com/mahajanP/CICD_Nginx_Dockerfile/commit/
+        uses: docker/metadata-action@032a4b3bda1b716928481836ac5bfe36e1feaad6 
+
         with:
           # Correct indentation for 'images' parameter
           images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}
@@ -54,4 +56,7 @@ jobs:
           push: true 
           # You can use the generated tags from the previous step here if desired:
           # tags: ${{ steps.meta.outputs.tags }}
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/nginx-ubuntu:latest
+          # tags: ${{ secrets.DOCKERHUB_USERNAME }}/nginx-ubuntu:latest
+          #tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.respository }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
