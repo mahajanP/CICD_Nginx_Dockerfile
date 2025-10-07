@@ -53,7 +53,6 @@ jobs:
             # Tag 3: Uses major and minor version (e.g., 'v1.0.0' -> '1.0')
             type=semver,pattern={{major}}.{{minor}}
             # Tag 4: Fix for 'latest' tag. Only generated when on the default branch ('main').
-            # 🚨 FIX: Removed outer single quotes from the enable expression.
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
             
       - name: Build Image and Push to Docker Hub
