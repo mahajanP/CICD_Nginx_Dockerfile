@@ -1,0 +1,94 @@
+name: "CICD for Nginx webapp using Dockerfile" # Continuous Integration and Security Scan
+
+on:
+  push:
+    # Runs on pushes to the default development branch
+    branches: ["main"] 
+    # Runs when a semantic version tag is pushed (e.g., git push origin v1.0.0)
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  
+permissions: 
+  # Grants read permission to fetch the repository contents (required by actions/checkout)
+  contents: read
+
+jobs:
+  nginx-image-build:
+    runs-on: ubuntu-latest
+    # Specifies the target environment (for tracking and protection rules)
+    environment: production
+    
+    steps:
+      - name: Checkout repository
+        # Fetches the code from the repository
+        uses: actions/checkout@v4 
+        
+      # 1. LOGIN
+      - name: Login to Docker Hub
+        # Action to authenticate against Docker Hub using provided secrets
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }} 
+          password: ${{ secrets.DOCKERHUB_TOKEN }} 
+          
+      - name: Setup Docker Buildx
+        # Sets up the necessary tools for multi-platform Docker builds (used by build-push-action)
+        uses: docker/setup-buildx-action@v3
+        
+      # 2. EXTRACT METADATA
+      - name: Extract metadata for the Docker Image
+        id: meta
+        # Action that generates version tags and labels based on the Git context
+        uses: docker/metadata-action@v5
+        with:
+          # Defines the final image name structure: (Username/ImageName)
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/nginx-ubuntu
+          tags: |
+            # Tag 1: Uses the branch name (e.g., 'main')
+            type=ref,event=branch
+            # Tag 2: Uses semantic version for tags (e.g., 'v1.0.0' -> '1.0.0')
+            type=semver,pattern={{version}}
+            # Tag 3: Uses major and minor version (e.g., 'v1.0.0' -> '1.0')
+            type=semver,pattern={{major}}.{{minor}}
+            # Tag 4: Fix for 'latest' tag. Only generated when on the default branch ('main').
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+      # 3. BUILD IMAGE (Locally Only)
+      - name: Build Image (local only for scan)
+        id: build
+        # Builds the image and tags it using all the generated tags, but does NOT push yet.
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false # Crucial: Build locally for the scan step
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # 4. RUN TRIVY VULNERABILITY SCAN
+      # This step must run after the image is built and locally tagged.
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          # Scans the locally built image using the first generated tag (e.g., 'username/nginx-ubuntu:main')
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/nginx-ubuntu:${{ steps.meta.outputs.tags }}'
+          format: 'table'
+          # Fail the job if CRITICAL or HIGH vulnerabilities are found
+          exit-code: '1' 
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH' 
+          
+      # 5. PUSH IMAGE (Only runs if the Trivy scan passed)
+      - name: Push Image to Docker Hub
+        run: |
+          echo "Trivy scan passed. Pushing all generated tags: ${{ steps.meta.outputs.tags }}"
+          
+          # Splits the comma-separated list of tags from the metadata step
+          IFS=',' read -ra TAGS <<< "${{ steps.meta.outputs.tags }}"
+          
+          for TAG in "${TAGS[@]}"; do
+            IMAGE_WITH_TAG="${{ secrets.DOCKERHUB_USERNAME }}/nginx-ubuntu:$TAG"
+            echo "Pushing $IMAGE_WITH_TAG"
+            # Manually push each tag one by one
+            docker push $IMAGE_WITH_TAG
+          done

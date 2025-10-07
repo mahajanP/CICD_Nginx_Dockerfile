@@ -1,6 +1,6 @@
 name: "CICD for Nginx webapp using Dockerfile" #Prakash Mahajan tag update
 
-on:
+on: workflow_dispatch #tempory disable yaml
   # Triggers the workflow on pushes to the 'main' branch
   push:
     #branches: ["main"]   # unalbe to build run only github action if tag is add action will run 
