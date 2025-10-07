@@ -6,6 +6,8 @@ on:
     # To ignore paths on push, uncomment and correct the following section:
     # paths-ignore:
     #   - "src/"
+    tags:
+      - 'v1.*'
   pull_request:
     branches: ["main"]
 
