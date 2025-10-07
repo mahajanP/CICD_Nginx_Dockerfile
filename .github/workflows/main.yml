@@ -39,8 +39,9 @@ jobs:
         with:
           # 🚨 FIX 1: Hardcoding the repository/image name ('nginx-ubuntu') 
           # instead of relying on an undefined 'env.repository' variable.
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/nginx-ubuntu
-          
+          images: ${{ secrets.DOCKERHUB_USERNAME }}${{ env.respository }} 
+          tags: |
+            type=semver,pattern={{version}}        
           # FIX 2: Correcting the syntax for dynamic tags
           tags: |
             type=ref,event=branch # Generates tags like 'main'
