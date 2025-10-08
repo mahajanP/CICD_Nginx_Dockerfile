@@ -43,7 +43,7 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}::latest
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:latest'
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
@@ -56,4 +56,4 @@ jobs:
 
       - name: Push Image to Docker Hub
         run: |
-          docker image push ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}::latest
+          docker image push ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:latest
