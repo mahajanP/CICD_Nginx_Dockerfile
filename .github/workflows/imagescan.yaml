@@ -1,88 +1,59 @@
 name: "CICD for Nginx webapp using Dockerfile"
+#Run Build, Scan and Push github workflow
 
 on:
-  # Temporarily enabling manual trigger for testing (as requested by user comment)
-  #workflow_dispatch:
   push:
-    # Trigger the CI/CD pipeline specifically when a semantic version tag is pushed 
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
-  
-permissions: 
-  contents: read
 
 env:
-  REPOSITORY_NAME: nginx-ubuntu
+  repository: nginx-ubuntu
+
+permissions:
+  contents: read
 
 jobs:
   nginx-image-build:
     runs-on: ubuntu-latest
     environment: production
-    
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4 
+        uses: actions/checkout@v4
         with:
-          # Use token for authenticated checkout
-          token: ${{ secrets.GITUSER_TOKEN }} 
-          
-      # 1. LOGIN (REQUIRED FIRST)
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }} 
-          password: ${{ secrets.DOCKERHUB_TOKEN }} 
-          
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
-        
-      # 2. EXTRACT METADATA
-      - name: Extract metadata for the Docker Image
+
+      # Extract metadata for Docker image
+      - name: Extract metadata for the Docker image
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.REPOSITORY_NAME }}
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}
           tags: |
-            type=semver,pattern={{version}}       # Generates major.minor.patch (e.g., 1.0.0)
-            type=semver,pattern={{major}}.{{minor}} # Generates major.minor (e.g., 1.0)
-            type=semver,pattern={{major}}         # Generates major (e.g., 1)
-            # Tag 4: Fix for 'latest' tag. Only generated when on the default branch ('main').
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=semver,pattern={{version}}
 
-      # 3. BUILD IMAGE (LOCAL - The start of the B -> S -> P sequence)
-      # This step builds the image locally and applies all tags from metadata.
-      - name: Build Image (Local Tagging for Scan)
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: false # Crucial: Build locally for the scan step
-          tags: ${{ steps.meta.outputs.tags }}
-          
-      # 4. SCAN IMAGE (Security Check)
-      # Uses the primary generated tag (the first one in the list, e.g., 'username/nginx-ubuntu:1.0.0') for scanning.
+      - name: Build Image
+        run: |
+          docker image build -t ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:latest .
+
+      # Run Trivy vulnerability scan
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
-          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/${{ env.REPOSITORY_NAME }}:${{ steps.meta.outputs.tags }}'
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}::latest
           format: 'table'
-          # Fail the job if CRITICAL or HIGH vulnerabilities are found
-          exit-code: '1' 
+          exit-code: '1'
           ignore-unfixed: true
-          severity: 'CRITICAL,HIGH' 
-          
-      # 5. PUSH IMAGE (Only runs if the Trivy scan passed)
-      # This step manually pushes ALL generated tags after the successful scan.
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Push Image to Docker Hub
         run: |
-          echo "Trivy scan passed. Pushing all generated tags: ${{ steps.meta.outputs.tags }}"
-          
-          # Splits the comma-separated list of tags from the metadata step
-          IFS=',' read -ra TAGS <<< "${{ steps.meta.outputs.tags }}"
-          
-          for TAG in "${TAGS[@]}"; do
-            IMAGE_WITH_TAG="${{ secrets.DOCKERHUB_USERNAME }}/${{ env.REPOSITORY_NAME }}:$TAG"
-            echo "Pushing $IMAGE_WITH_TAG"
-            docker push $IMAGE_WITH_TAG
-          done
+          docker image push ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}::latest
