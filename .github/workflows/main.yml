@@ -1,5 +1,5 @@
 name: "CICD for Nginx webapp using Dockerfile"
-#Run Build, Scan and Push github workflow
+# Run Build, Scan, and Push GitHub workflow
 
 on:
   push:
@@ -21,25 +21,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.DOCKERHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       # Extract metadata for Docker image
-      - name: Extract metadata for the Docker image
+      - name: Extract metadata for Docker image
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}
           tags: |
             type=semver,pattern={{version}}
+            type=raw,value=latest
 
-      - name: Build Image
+      - name: Build Docker image
         run: |
-          docker image build -t ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:latest .
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:latest .
+          docker tag ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:latest \
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:${{ steps.meta.outputs.version }}
 
-      # Run Trivy vulnerability scan
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
@@ -54,6 +56,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Push Image to Docker Hub
+      - name: Push Docker images
         run: |
-          docker image push ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.repository }}:${{ steps.meta.outputs.version }}
